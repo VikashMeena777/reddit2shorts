@@ -1,0 +1,13 @@
+# Reddit Shorts Video Renderer - Dependencies
+# ===========================================
+
+# Google Drive API
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-api-python-client>=2.100.0
+
+# Edge TTS - FREE text-to-speech by Microsoft
+edge-tts>=6.1.9
+
+# HTTP requests
+requests>=2.31.0
