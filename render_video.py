@@ -76,70 +76,32 @@ async def generate_tts(script: str, output_path: str) -> str:
     return output_path
 
 
-def download_youtube_video(video_id: str, output_path: str) -> str:
-    """Download a YouTube video using yt-dlp with cookie support."""
-    print(f"  Downloading: https://www.youtube.com/watch?v={video_id}")
+def download_pexels_video(video_url: str, output_path: str) -> str:
+    """Download a video from Pexels direct URL - no auth needed!"""
+    import requests
     
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    output_template = output_path.replace('.mp4', '')
+    print(f"  Downloading: {video_url[:60]}...")
     
-    # Check for cookies file
-    cookies_file = None
-    cookies_content = os.environ.get('YOUTUBE_COOKIES')
+    response = requests.get(video_url, stream=True)
+    response.raise_for_status()
     
-    if cookies_content:
-        # Write cookies to a temp file
-        cookies_file = '/tmp/youtube_cookies.txt'
-        with open(cookies_file, 'w') as f:
-            f.write(cookies_content)
-        print("  Using YouTube cookies for authentication")
+    # Get total size for progress
+    total_size = int(response.headers.get('content-length', 0))
     
-    # Build yt-dlp command
-    cmd = [
-        'yt-dlp',
-        '--format', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best',
-        '--merge-output-format', 'mp4',
-        '--no-playlist',
-        '--output', output_template + '.%(ext)s',
-        '--no-warnings',
-    ]
+    with open(output_path, 'wb') as f:
+        downloaded = 0
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+            downloaded += len(chunk)
+            if total_size > 0:
+                percent = (downloaded / total_size) * 100
+                print(f"\r  Progress: {percent:.1f}%", end='', flush=True)
     
-    # Add cookies if available
-    if cookies_file and os.path.exists(cookies_file):
-        cmd.extend(['--cookies', cookies_file])
+    print()  # New line after progress
     
-    cmd.append(url)
-    
-    print(f"  Running yt-dlp...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        print(f"  yt-dlp error: {result.stderr}")
-        # Try simpler format with cookies
-        cmd_simple = [
-            'yt-dlp',
-            '--format', 'best[height<=720]',
-            '--no-playlist',
-            '--output', output_template + '.%(ext)s',
-        ]
-        if cookies_file and os.path.exists(cookies_file):
-            cmd_simple.extend(['--cookies', cookies_file])
-        cmd_simple.append(url)
-        
-        result = subprocess.run(cmd_simple, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to download video: {result.stderr}")
-    
-    # Find the actual output file
-    import glob
-    files = glob.glob(output_template + '.*')
-    if files:
-        actual_path = files[0]
-        print(f"  Downloaded: {actual_path}")
-        return actual_path
-    
-    raise RuntimeError("Video file not found after download")
+    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    print(f"  Downloaded: {output_path} ({size_mb:.1f} MB)")
+    return output_path
 
 
 def upload_to_drive(service, file_path: str, folder_id: str, filename: str) -> dict:
@@ -316,7 +278,7 @@ async def main_async(payload):
     print("REDDIT SHORTS VIDEO RENDERER (FREE TTS)")
     print("=" * 60)
     print(f"Title: {payload['story_title']}")
-    print(f"YouTube: {payload['youtube_url']}")
+    print(f"Video: Pexels #{payload.get('video_id', 'N/A')}")
     
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
@@ -330,10 +292,10 @@ async def main_async(payload):
         duration = get_audio_duration(audio_path)
         print(f"  Audio duration: {duration:.1f} seconds")
         
-        # Download YouTube video
-        print("\n[2/5] Downloading gameplay from YouTube...")
-        video_path = str(temp_path / "gameplay.mp4")
-        video_path = download_youtube_video(payload['youtube_video_id'], video_path)
+        # Download Pexels video (direct URL - no auth needed!)
+        print("\n[2/5] Downloading video from Pexels...")
+        video_path = str(temp_path / "background.mp4")
+        video_path = download_pexels_video(payload['video_url'], video_path)
         
         # Generate subtitles from script
         print("\n[3/5] Generating subtitles...")
