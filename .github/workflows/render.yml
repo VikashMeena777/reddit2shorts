@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       payload:
-        description: 'JSON payload with youtube_video_id, audio_base64, story_title, script'
+        description: 'JSON payload with youtube_video_id, story_title, script'
         required: true
         type: string
 
@@ -53,7 +53,6 @@ jobs:
       - name: Prepare payload (repository_dispatch)
         if: github.event_name == 'repository_dispatch'
         run: |
-          # Write payload to file to avoid command line length limits
           cat << 'EOF' > /tmp/payload.json
           ${{ toJson(github.event.client_payload) }}
           EOF
@@ -68,7 +67,6 @@ jobs:
       - name: Render video
         id: render
         run: |
-          # Read payload from file
           PAYLOAD=$(cat $PAYLOAD_FILE)
           python render_video.py --payload "$PAYLOAD"
       
@@ -82,8 +80,7 @@ jobs:
             -d '{
               "status": "success",
               "file_id": "${{ steps.render.outputs.file_id }}",
-              "filename": "${{ steps.render.outputs.filename }}",
-              "web_link": "${{ steps.render.outputs.web_link }}"
+              "filename": "${{ steps.render.outputs.filename }}"
             }'
       
       - name: Notify failure webhook
@@ -95,6 +92,5 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "status": "failed",
-              "error": "Video rendering failed - check GitHub Actions logs",
               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }'
