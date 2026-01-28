@@ -1,0 +1,100 @@
+name: Render Short Video
+
+on:
+  repository_dispatch:
+    types: [render_video]
+  
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: 'JSON payload with youtube_video_id, audio_base64, story_title, script'
+        required: true
+        type: string
+
+env:
+  OUTPUT_FOLDER_ID: ${{ secrets.OUTPUT_FOLDER_ID }}
+  GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          
+          # Install yt-dlp
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          
+          # Verify installations
+          echo "FFmpeg version:"
+          ffmpeg -version | head -1
+          echo "yt-dlp version:"
+          yt-dlp --version
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Prepare payload (repository_dispatch)
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          # Write payload to file to avoid command line length limits
+          cat << 'EOF' > /tmp/payload.json
+          ${{ toJson(github.event.client_payload) }}
+          EOF
+          echo "PAYLOAD_FILE=/tmp/payload.json" >> $GITHUB_ENV
+      
+      - name: Prepare payload (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo '${{ github.event.inputs.payload }}' > /tmp/payload.json
+          echo "PAYLOAD_FILE=/tmp/payload.json" >> $GITHUB_ENV
+      
+      - name: Render video
+        id: render
+        run: |
+          # Read payload from file
+          PAYLOAD=$(cat $PAYLOAD_FILE)
+          python render_video.py --payload "$PAYLOAD"
+      
+      - name: Notify success webhook
+        if: success() && env.N8N_WEBHOOK_URL != ''
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+        run: |
+          curl -X POST "$N8N_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "status": "success",
+              "file_id": "${{ steps.render.outputs.file_id }}",
+              "filename": "${{ steps.render.outputs.filename }}",
+              "web_link": "${{ steps.render.outputs.web_link }}"
+            }'
+      
+      - name: Notify failure webhook
+        if: failure() && env.N8N_WEBHOOK_URL != ''
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+        run: |
+          curl -X POST "$N8N_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "status": "failed",
+              "error": "Video rendering failed - check GitHub Actions logs",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }'
