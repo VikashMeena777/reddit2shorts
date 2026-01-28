@@ -3,10 +3,11 @@
 Reddit Shorts Video Renderer - FULLY AUTOMATED (FREE)
 ======================================================
 Uses edge-tts for FREE text-to-speech, no API keys needed!
+Uploads to Catbox.moe for FREE file hosting with direct links!
 
 Triggered by GitHub Actions with payload:
-- youtube_video_id: YouTube video ID for gameplay
-- youtube_url: Full YouTube URL  
+- video_url: Pexels video URL
+- video_id: Pexels video ID
 - story_title: Title for the short
 - script: The script text for TTS and subtitles
 """
@@ -18,20 +19,14 @@ import asyncio
 import argparse
 import subprocess
 import tempfile
+import shutil
+import requests
 from pathlib import Path
-
-# Google Drive imports for output upload
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 
 # Edge TTS for FREE voice generation
 import edge_tts
 
 # --- Configuration ---
-OUTPUT_FOLDER_ID = os.environ.get('OUTPUT_FOLDER_ID', 'YOUR_OUTPUT_FOLDER_ID')
-SCOPES = ['https://www.googleapis.com/auth/drive']
-
 # Edge TTS Voice - Natural sounding male voice
 VOICE = "en-US-ChristopherNeural"  # Deep male voice, great for stories
 # Other options:
@@ -47,21 +42,31 @@ SUBTITLE_OUTLINE_COLOR = "&H00000000"  # Black
 SUBTITLE_OUTLINE_WIDTH = 4
 
 
-def get_drive_service():
-    """Authenticate with Google Drive using service account."""
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+def upload_to_catbox(file_path: str) -> str:
+    """Upload a file to Catbox.moe and return the direct download URL."""
+    print(f"  Uploading to Catbox.moe...")
     
-    if creds_json:
-        creds_info = json.loads(creds_json)
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_info, scopes=SCOPES
-        )
-    else:
-        credentials = service_account.Credentials.from_service_account_file(
-            'service_account.json', scopes=SCOPES
-        )
+    url = "https://catbox.moe/user/api.php"
     
-    return build('drive', 'v3', credentials=credentials)
+    with open(file_path, 'rb') as f:
+        files = {
+            'fileToUpload': (os.path.basename(file_path), f, 'video/mp4')
+        }
+        data = {
+            'reqtype': 'fileupload'
+        }
+        
+        response = requests.post(url, files=files, data=data)
+        response.raise_for_status()
+        
+        # Catbox returns the direct URL as plain text
+        download_url = response.text.strip()
+        
+        if not download_url.startswith('https://'):
+            raise RuntimeError(f"Catbox upload failed: {download_url}")
+        
+        print(f"  Uploaded: {download_url}")
+        return download_url
 
 
 async def generate_tts(script: str, output_path: str) -> str:
@@ -78,8 +83,6 @@ async def generate_tts(script: str, output_path: str) -> str:
 
 def download_pexels_video(video_url: str, output_path: str) -> str:
     """Download a video from Pexels direct URL - no auth needed!"""
-    import requests
-    
     print(f"  Downloading: {video_url[:60]}...")
     
     response = requests.get(video_url, stream=True)
@@ -102,23 +105,6 @@ def download_pexels_video(video_url: str, output_path: str) -> str:
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"  Downloaded: {output_path} ({size_mb:.1f} MB)")
     return output_path
-
-
-def upload_to_drive(service, file_path: str, folder_id: str, filename: str) -> dict:
-    """Upload a file to Google Drive."""
-    file_metadata = {
-        'name': filename,
-        'parents': [folder_id]
-    }
-    media = MediaFileUpload(file_path, mimetype='video/mp4', resumable=True)
-    
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id, name, webViewLink'
-    ).execute()
-    
-    return file
 
 
 def get_audio_duration(audio_path: str) -> float:
@@ -275,7 +261,7 @@ def render_video(audio_path: str, video_path: str, subtitle_path: str, output_pa
 async def main_async(payload):
     """Async main function for edge-tts."""
     print("=" * 60)
-    print("REDDIT SHORTS VIDEO RENDERER (FREE TTS)")
+    print("REDDIT SHORTS VIDEO RENDERER (FREE)")
     print("=" * 60)
     print(f"Title: {payload['story_title']}")
     print(f"Video: Pexels #{payload.get('video_id', 'N/A')}")
@@ -305,30 +291,30 @@ async def main_async(payload):
         
         # Render final video
         print("\n[4/5] Rendering final video...")
-        safe_title = ''.join(c for c in payload['story_title'][:25] if c.isalnum() or c == ' ').replace(' ', '_')
+        safe_title = ''.join(c for c in payload['story_title'][:30] if c.isalnum() or c == ' ').replace(' ', '_')
         output_filename = f"short_{safe_title}_{payload['timestamp']}.mp4"
         output_path = str(temp_path / output_filename)
         
         render_video(audio_path, video_path, subtitle_path, output_path, duration)
         
-        # Upload to Drive
-        print("\n[5/5] Uploading to Google Drive...")
-        service = get_drive_service()
-        result = upload_to_drive(service, output_path, OUTPUT_FOLDER_ID, output_filename)
+        # Upload to Catbox.moe (FREE file hosting!)
+        print("\n[5/5] Uploading to Catbox.moe...")
+        download_url = upload_to_catbox(output_path)
         
         print("\n" + "=" * 60)
         print("SUCCESS!")
         print("=" * 60)
-        print(f"File ID: {result['id']}")
-        print(f"Filename: {result['name']}")
-        print(f"Link: {result.get('webViewLink', 'N/A')}")
+        print(f"Filename: {output_filename}")
+        print(f"Download URL: {download_url}")
         
-        # Output for GitHub Actions
+        # Set GitHub Actions outputs for n8n callback
         if os.environ.get('GITHUB_OUTPUT'):
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                f.write(f"file_id={result['id']}\n")
-                f.write(f"filename={result['name']}\n")
-                f.write(f"web_link={result.get('webViewLink', '')}\n")
+                f.write(f"filename={output_filename}\n")
+                f.write(f"download_url={download_url}\n")
+                f.write(f"title={payload['story_title']}\n")
+        
+        return download_url
 
 
 def main():
