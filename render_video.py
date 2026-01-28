@@ -77,12 +77,24 @@ async def generate_tts(script: str, output_path: str) -> str:
 
 
 def download_youtube_video(video_id: str, output_path: str) -> str:
-    """Download a YouTube video using yt-dlp."""
+    """Download a YouTube video using yt-dlp with cookie support."""
     print(f"  Downloading: https://www.youtube.com/watch?v={video_id}")
     
     url = f"https://www.youtube.com/watch?v={video_id}"
     output_template = output_path.replace('.mp4', '')
     
+    # Check for cookies file
+    cookies_file = None
+    cookies_content = os.environ.get('YOUTUBE_COOKIES')
+    
+    if cookies_content:
+        # Write cookies to a temp file
+        cookies_file = '/tmp/youtube_cookies.txt'
+        with open(cookies_file, 'w') as f:
+            f.write(cookies_content)
+        print("  Using YouTube cookies for authentication")
+    
+    # Build yt-dlp command
     cmd = [
         'yt-dlp',
         '--format', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best',
@@ -90,22 +102,30 @@ def download_youtube_video(video_id: str, output_path: str) -> str:
         '--no-playlist',
         '--output', output_template + '.%(ext)s',
         '--no-warnings',
-        url
     ]
+    
+    # Add cookies if available
+    if cookies_file and os.path.exists(cookies_file):
+        cmd.extend(['--cookies', cookies_file])
+    
+    cmd.append(url)
     
     print(f"  Running yt-dlp...")
     result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode != 0:
         print(f"  yt-dlp error: {result.stderr}")
-        # Try simpler format
+        # Try simpler format with cookies
         cmd_simple = [
             'yt-dlp',
             '--format', 'best[height<=720]',
             '--no-playlist',
             '--output', output_template + '.%(ext)s',
-            url
         ]
+        if cookies_file and os.path.exists(cookies_file):
+            cmd_simple.extend(['--cookies', cookies_file])
+        cmd_simple.append(url)
+        
         result = subprocess.run(cmd_simple, capture_output=True, text=True)
         
         if result.returncode != 0:
