@@ -7,14 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       payload:
-        description: 'JSON payload with youtube_video_id, story_title, script'
+        description: 'JSON payload with video_url, story_title, script'
         required: true
         type: string
 
 env:
   OUTPUT_FOLDER_ID: ${{ secrets.OUTPUT_FOLDER_ID }}
   GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-  YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
 
 jobs:
   render:
@@ -36,15 +35,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           
-          # Install yt-dlp
-          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-          sudo chmod a+rx /usr/local/bin/yt-dlp
-          
-          # Verify installations
+          # Verify FFmpeg
           echo "FFmpeg version:"
           ffmpeg -version | head -1
-          echo "yt-dlp version:"
-          yt-dlp --version
       
       - name: Install Python dependencies
         run: |
