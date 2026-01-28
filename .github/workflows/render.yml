@@ -11,10 +11,6 @@ on:
         required: true
         type: string
 
-env:
-  OUTPUT_FOLDER_ID: ${{ secrets.OUTPUT_FOLDER_ID }}
-  GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-
 jobs:
   render:
     runs-on: ubuntu-latest
@@ -34,8 +30,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          
-          # Verify FFmpeg
           echo "FFmpeg version:"
           ffmpeg -version | head -1
       
@@ -64,25 +58,22 @@ jobs:
           PAYLOAD=$(cat $PAYLOAD_FILE)
           python render_video.py --payload "$PAYLOAD"
       
-      - name: Notify success webhook
-        if: success() && env.N8N_WEBHOOK_URL != ''
-        env:
-          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+      - name: Call n8n webhook with download URL
+        if: success() && vars.N8N_WEBHOOK_URL != ''
         run: |
-          curl -X POST "$N8N_WEBHOOK_URL" \
+          curl -X POST "${{ vars.N8N_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             -d '{
               "status": "success",
-              "file_id": "${{ steps.render.outputs.file_id }}",
-              "filename": "${{ steps.render.outputs.filename }}"
+              "filename": "${{ steps.render.outputs.filename }}",
+              "download_url": "${{ steps.render.outputs.download_url }}",
+              "title": "${{ steps.render.outputs.title }}"
             }'
       
       - name: Notify failure webhook
-        if: failure() && env.N8N_WEBHOOK_URL != ''
-        env:
-          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+        if: failure() && vars.N8N_WEBHOOK_URL != ''
         run: |
-          curl -X POST "$N8N_WEBHOOK_URL" \
+          curl -X POST "${{ vars.N8N_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             -d '{
               "status": "failed",
