@@ -81,26 +81,107 @@ async def generate_tts(script: str, output_path: str) -> str:
     return output_path
 
 
-def download_pexels_video(video_url: str, output_path: str) -> str:
-    """Download a video from Pexels direct URL - no auth needed!"""
+def download_video(video_url: str, output_path: str) -> str:
+    """Download a video from Google Drive (via rclone) or direct URL."""
     print(f"  Downloading: {video_url[:60]}...")
     
-    response = requests.get(video_url, stream=True)
-    response.raise_for_status()
-    
-    # Get total size for progress
-    total_size = int(response.headers.get('content-length', 0))
-    
-    with open(output_path, 'wb') as f:
-        downloaded = 0
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
-            downloaded += len(chunk)
-            if total_size > 0:
-                percent = (downloaded / total_size) * 100
-                print(f"\r  Progress: {percent:.1f}%", end='', flush=True)
-    
-    print()  # New line after progress
+    # Check if it's a Google Drive link
+    if 'drive.google.com' in video_url:
+        # Extract file ID from various Google Drive URL formats
+        import re
+        
+        # Match patterns like /d/FILE_ID/ or id=FILE_ID
+        match = re.search(r'/d/([a-zA-Z0-9_-]+)', video_url)
+        if not match:
+            match = re.search(r'id=([a-zA-Z0-9_-]+)', video_url)
+        
+        if not match:
+            raise RuntimeError(f"Could not extract file ID from Google Drive URL: {video_url}")
+        
+        file_id = match.group(1)
+        print(f"  Google Drive file ID: {file_id}")
+        
+        # Use rclone to download from Google Drive
+        # rclone must be configured with 'gdrive' remote
+        rclone_path = f"vk889900:{{{{ id={file_id} }}}}"
+        
+        cmd = [
+            'rclone', 'copyto',
+            '--drive-shared-with-me',
+            f':drive,team_drive=:{{id={file_id}}}',
+            output_path
+        ]
+        
+        # Alternative simpler approach using rclone backend command
+        cmd = [
+            'rclone', 'copyurl',
+            f'https://drive.google.com/uc?export=download&id={file_id}',
+            output_path,
+            '--auto-filename=false'
+        ]
+        
+        # Best approach: use rclone with Google Drive backend
+        cmd = [
+            'rclone', 'copy',
+            f'vk889900:{{id={file_id}}}',
+            os.path.dirname(output_path),
+            '--drive-acknowledge-abuse',
+            '-v'
+        ]
+        
+        print(f"  Running rclone...")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"  rclone error: {result.stderr}")
+            # Try alternative: direct download with confirmation bypass
+            print("  Trying direct download with gdown...")
+            try:
+                import gdown
+                gdown.download(id=file_id, output=output_path, quiet=False)
+            except ImportError:
+                # Fall back to requests with cookies
+                session = requests.Session()
+                response = session.get(f'https://drive.google.com/uc?id={file_id}&export=download')
+                
+                # Check for confirmation token
+                for key, value in response.cookies.items():
+                    if key.startswith('download_warning'):
+                        response = session.get(
+                            f'https://drive.google.com/uc?id={file_id}&export=download&confirm={value}',
+                            stream=True
+                        )
+                        break
+                
+                with open(output_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+        else:
+            # rclone downloads to a file named by the original filename
+            # We need to rename it to our expected output path
+            downloaded_files = os.listdir(os.path.dirname(output_path))
+            for f in downloaded_files:
+                if f.endswith('.mp4') and f != os.path.basename(output_path):
+                    src = os.path.join(os.path.dirname(output_path), f)
+                    shutil.move(src, output_path)
+                    break
+    else:
+        # Direct URL download (Catbox, etc.)
+        response = requests.get(video_url, stream=True)
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        
+        with open(output_path, 'wb') as f:
+            downloaded = 0
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0:
+                    percent = (downloaded / total_size) * 100
+                    print(f"\r  Progress: {percent:.1f}%", end='', flush=True)
+        
+        print()  # New line after progress
     
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"  Downloaded: {output_path} ({size_mb:.1f} MB)")
@@ -264,7 +345,7 @@ async def main_async(payload):
     print("REDDIT SHORTS VIDEO RENDERER (FREE)")
     print("=" * 60)
     print(f"Title: {payload['story_title']}")
-    print(f"Video: Pexels #{payload.get('video_id', 'N/A')}")
+    print(f"Video: {payload.get('video_name', 'gameplay')}")
     
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
@@ -278,10 +359,10 @@ async def main_async(payload):
         duration = get_audio_duration(audio_path)
         print(f"  Audio duration: {duration:.1f} seconds")
         
-        # Download Pexels video (direct URL - no auth needed!)
-        print("\n[2/5] Downloading video from Pexels...")
+        # Download video from Google Drive or direct URL
+        print("\n[2/5] Downloading background video...")
         video_path = str(temp_path / "background.mp4")
-        video_path = download_pexels_video(payload['video_url'], video_path)
+        video_path = download_video(payload['video_url'], video_path)
         
         # Generate subtitles from script
         print("\n[3/5] Generating subtitles...")
