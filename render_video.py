@@ -69,6 +69,55 @@ def upload_to_catbox(file_path: str) -> str:
         return download_url
 
 
+def upload_to_gdrive(file_path: str, folder_path: str = "Reddit Stories Shorts") -> str:
+    """Upload a file to Google Drive using rclone and return the shareable link."""
+    print(f"  Uploading to Google Drive...")
+    
+    filename = os.path.basename(file_path)
+    remote_path = f"vk889900:{folder_path}/{filename}"
+    
+    # Upload using rclone
+    cmd = [
+        'rclone', 'copyto',
+        file_path,
+        remote_path,
+        '-v'
+    ]
+    
+    print(f"  Running: rclone copyto to {remote_path}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        print(f"  rclone error: {result.stderr}")
+        raise RuntimeError(f"Failed to upload to Google Drive: {result.stderr}")
+    
+    print(f"  Upload complete!")
+    
+    # Get the file ID using rclone lsjson
+    cmd = [
+        'rclone', 'lsjson',
+        remote_path
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode == 0:
+        try:
+            file_info = json.loads(result.stdout)
+            if file_info and len(file_info) > 0:
+                file_id = file_info[0].get('ID', '')
+                if file_id:
+                    download_url = f"https://drive.google.com/file/d/{file_id}/view"
+                    print(f"  Google Drive URL: {download_url}")
+                    return download_url
+        except json.JSONDecodeError:
+            pass
+    
+    # Fallback: return the rclone path
+    print(f"  Could not get direct link, returning path: {remote_path}")
+    return remote_path
+
+
 async def generate_tts(script: str, output_path: str) -> str:
     """Generate text-to-speech using Edge TTS (FREE)."""
     print(f"  Using voice: {VOICE}")
@@ -378,9 +427,9 @@ async def main_async(payload):
         
         render_video(audio_path, video_path, subtitle_path, output_path, duration)
         
-        # Upload to Catbox.moe (FREE file hosting!)
-        print("\n[5/5] Uploading to Catbox.moe...")
-        download_url = upload_to_catbox(output_path)
+        # Upload to Google Drive using rclone
+        print("\n[5/5] Uploading to Google Drive...")
+        download_url = upload_to_gdrive(output_path)
         
         print("\n" + "=" * 60)
         print("SUCCESS!")
