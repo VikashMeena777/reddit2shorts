@@ -69,7 +69,7 @@ def upload_to_catbox(file_path: str) -> str:
         return download_url
 
 
-def upload_to_gdrive(file_path: str, folder_path: str = "Reddit Stories Shorts") -> str:
+def upload_to_gdrive(file_path: str, folder_path: str = "Reddit-Stories-Shorts") -> str:
     """Upload a file to Google Drive using rclone and return the shareable link."""
     print(f"  Uploading to Google Drive...")
     
@@ -458,3 +458,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
