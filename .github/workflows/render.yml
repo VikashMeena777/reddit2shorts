@@ -44,9 +44,9 @@ jobs:
           # Install rclone
           curl https://rclone.org/install.sh | sudo bash
           
-          # Configure rclone from secret
+          # Configure rclone from base64-encoded secret
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
+          echo "${{ secrets.RCLONE_CONFIG }}" | base64 -d > ~/.config/rclone/rclone.conf
           
           # Verify rclone is configured
           rclone listremotes
